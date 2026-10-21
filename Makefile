@@ -10,7 +10,16 @@ BIN     := fluid
 N       ?= 96
 STEPS   ?= 30
 
-.PHONY: all run clean vec asm bench-sizes bench-flags charts
+# --- Práctica 3 (MPI) ---
+MPICC     ?= mpicc
+MPI_BIN   := fluid_mpi
+MPI_SRCS  := main_mpi.c solver3d_mpi.c
+NP        ?= 4
+SIZES     ?= 32 64 96 128
+PROCS     ?= 1 2 3 4
+REPS      ?= 3
+
+.PHONY: all run clean vec asm bench-sizes bench-flags charts mpi run-mpi bench-mpi charts-mpi gprof
 
 all: $(BIN)
 
@@ -46,5 +55,33 @@ bench-flags:
 charts:
 	python3 scripts/plot_results.py results results/fig
 
+# Versión MPI: mpirun -np $(NP) ./fluid_mpi N pasos
+mpi: $(MPI_BIN)
+
+$(MPI_BIN): $(MPI_SRCS) slab.h
+	$(MPICC) $(CFLAGS) $(WARN) $(MPI_SRCS) -o $@ $(LDLIBS)
+
+run-mpi: $(MPI_BIN)
+	mpirun -np $(NP) ./$(MPI_BIN) $(N) $(STEPS)
+
+# Mediciones MPI frente al secuencial: make bench-mpi SIZES="32 64 96" PROCS="1 2 4" STEPS=30
+# (varios ordenadores: HOSTFILE=hosts MPIFLAGS="-mca plm_rsh_no_tree_spawn 1" make bench-mpi)
+bench-mpi: $(BIN) $(MPI_BIN)
+	bash scripts/bench_mpi.sh "$(SIZES)" "$(PROCS)" $(STEPS) $(REPS)
+
+charts-mpi:
+	python3 scripts/plot_mpi.py results results/fig
+
+# Tarea 1: perfil gprof del solver secuencial, -O0 y -O2 (informes en results/gprof_*.txt)
+gprof:
+	mkdir -p results
+	for o in O0 O2; do \
+	  mkdir -p results/prof_$$o && cd results/prof_$$o && \
+	  $(CC) -$$o -g -pg ../../main.c ../../solver3d.c -o fluid_prof -lm && \
+	  ./fluid_prof $(N) $(STEPS) > /dev/null && \
+	  gprof -b -p -q ./fluid_prof gmon.out > ../gprof_$$o.txt && cd ../..; \
+	done
+	@echo "Informes: results/gprof_O0.txt results/gprof_O2.txt"
+
 clean:
-	rm -f $(BIN) $(BIN)_vec $(BIN)_O* *.o
+	rm -f $(BIN) $(BIN)_vec $(BIN)_O* $(MPI_BIN) *.o
